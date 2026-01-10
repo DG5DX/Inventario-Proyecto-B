@@ -21,11 +21,14 @@ const getTransporter = () => {
         transporter = nodemailer.createTransport({
             host: SMTP_HOST,
             port: Number(SMTP_PORT) || 587,
-            secure: false,
+            secure: false, 
             auth: SMTP_USER && SMTP_PASS ? { 
                 user: SMTP_USER, 
                 pass: SMTP_PASS 
-            } : undefined
+            } : undefined,
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 10000
         });
     }
     return transporter;
@@ -48,16 +51,22 @@ const sendMail = async ({ to, subject, text }) => {
     
     try {
         const result = await tx.sendMail(mailOptions);
-        logger.info('Correo enviado exitosamente', { 
+        logger.info('✅ Correo enviado exitosamente', { 
             messageId: result.messageId, 
-            to 
-        });
-    } catch (error) {
-        logger.error('Error enviando correo', { 
-            error: error.message, 
             to,
-            host: process.env.SMTP_HOST
+            subject
         });
+        return result;
+    } catch (error) {
+        logger.error('❌ Error enviando correo', { 
+            error: error.message,
+            code: error.code,
+            to,
+            subject,
+            host: process.env.SMTP_HOST,
+            user: process.env.SMTP_USER
+        });
+        throw error; 
     }
 };
 
@@ -69,8 +78,11 @@ const sendAprobacion = (user, loan, item) => {
         cantidad: loan.cantidad_prestamo
     });
     
-    sendMail({ ...template, to: user.email }).catch(err => {
-        logger.error('Error enviando correo de aprobación:', err);
+    setImmediate(() => {
+        sendMail({ ...template, to: user.email })
+            .catch(err => {
+                logger.error('Error en sendAprobacion (background):', err.message);
+            });
     });
 };
 
@@ -81,8 +93,11 @@ const sendDevolucion = (user, loan, item) => {
         cantidad: loan.cantidad_prestamo
     });
     
-    sendMail({ ...template, to: user.email }).catch(err => {
-        logger.error('Error enviando correo de devolución:', err);
+    setImmediate(() => {
+        sendMail({ ...template, to: user.email })
+            .catch(err => {
+                logger.error('Error en sendDevolucion (background):', err.message);
+            });
     });
 };
 
@@ -93,8 +108,11 @@ const sendRecordatorio = (user, loan, item) => {
         fechaEstimada: loan.fecha_estimada
     });
     
-    sendMail({ ...template, to: user.email }).catch(err => {
-        logger.error('Error enviando recordatorio:', err);
+    setImmediate(() => {
+        sendMail({ ...template, to: user.email })
+            .catch(err => {
+                logger.error('Error en sendRecordatorio (background):', err.message);
+            });
     });
 };
 
@@ -105,8 +123,11 @@ const sendAplazado = (user, loan, item) => {
         nuevaFecha: loan.fecha_estimada
     });
     
-    sendMail({ ...template, to: user.email }).catch(err => {
-        logger.error('Error enviando correo de aplazamiento:', err);
+    setImmediate(() => {
+        sendMail({ ...template, to: user.email })
+            .catch(err => {
+                logger.error('Error en sendAplazado (background):', err.message);
+            });
     });
 };
 
