@@ -1,4 +1,3 @@
-const nodemailer = require('nodemailer');
 const logger = require('../config/logger.js');
 const {
     aprobacionTemplate,
@@ -7,77 +6,58 @@ const {
     aplazadoTemplate
 } = require('../utils/mailTemplates.js');
 
-let transporter;
-
-const getTransporter = () => {
-    if (!transporter) {
-        const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
-        
-        if(!SMTP_HOST) {
-            logger.warn('SMTP_HOST no configurado - correos deshabilitados');
-            return null;
-        }
-        
-        const port = Number(SMTP_PORT) || 465;
-        const isSecure = port === 465;
-        
-        transporter = nodemailer.createTransport({
-            host: SMTP_HOST,
-            port: port,
-            secure: isSecure,
-            auth: SMTP_USER && SMTP_PASS ? { 
-                user: SMTP_USER, 
-                pass: SMTP_PASS 
-            } : undefined,
-            connectionTimeout: 10000,
-            greetingTimeout: 10000,
-            socketTimeout: 10000,
-            tls: {
-                rejectUnauthorized: false
-            }
-        });
-        
-        logger.info(`📧 Transporter configurado: ${SMTP_HOST}:${port} (secure: ${isSecure})`);
-    }
-    return transporter;
-};
+// ✅ RESEND - API de correos (100/día gratis)
+// Funciona en Render porque usa HTTPS, no SMTP
 
 const sendMail = async ({ to, subject, text }) => {
-    const tx = getTransporter();
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
     
-    if (!tx) {
-        logger.warn('⚠️ Transporter no configurado - correo no enviado');
+    if (!RESEND_API_KEY) {
+        logger.warn('⚠️ RESEND_API_KEY no configurada - correo no enviado');
+        logger.info('📧 [SIMULADO] Correo que se enviaría:', { to, subject });
         return;
     }
     
-    const mailOptions = {
-        from: process.env.MAIL_FROM || 'no-reply@example.com',
-        to,
-        subject,
-        text
-    };
-    
     try {
-        const result = await tx.sendMail(mailOptions);
-        logger.info('✅ Correo enviado exitosamente', { 
-            messageId: result.messageId, 
+        const response = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${RESEND_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                from: process.env.MAIL_FROM || 'Sistema Inventario <onboarding@resend.dev>',
+                to: [to],
+                subject: subject,
+                text: text
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(`Resend API error: ${error.message || response.statusText}`);
+        }
+
+        const result = await response.json();
+        
+        logger.info('✅ Correo enviado exitosamente via Resend', { 
+            id: result.id,
             to,
             subject
         });
+        
         return result;
     } catch (error) {
-        logger.error('❌ Error enviando correo', { 
+        logger.error('❌ Error enviando correo via Resend', { 
             error: error.message,
-            code: error.code,
-            command: error.command,
             to,
-            subject,
-            host: process.env.SMTP_HOST,
-            port: process.env.SMTP_PORT
+            subject
         });
+        // No lanzar error para no bloquear el flujo
     }
 };
 
+// ✅ Envío asíncrono - No bloquea
 const sendAprobacion = (user, loan, item) => {
     const template = aprobacionTemplate({
         nombreUsuario: user.nombre,
@@ -89,7 +69,7 @@ const sendAprobacion = (user, loan, item) => {
     setImmediate(() => {
         sendMail({ ...template, to: user.email })
             .catch(err => {
-                logger.error('Error en sendAprobacion (background):', err?.message);
+                logger.error('Error en sendAprobacion:', err?.message);
             });
     });
 };
@@ -104,7 +84,7 @@ const sendDevolucion = (user, loan, item) => {
     setImmediate(() => {
         sendMail({ ...template, to: user.email })
             .catch(err => {
-                logger.error('Error en sendDevolucion (background):', err?.message);
+                logger.error('Error en sendDevolucion:', err?.message);
             });
     });
 };
@@ -119,7 +99,7 @@ const sendRecordatorio = (user, loan, item) => {
     setImmediate(() => {
         sendMail({ ...template, to: user.email })
             .catch(err => {
-                logger.error('Error en sendRecordatorio (background):', err?.message);
+                logger.error('Error en sendRecordatorio:', err?.message);
             });
     });
 };
@@ -134,7 +114,7 @@ const sendAplazado = (user, loan, item) => {
     setImmediate(() => {
         sendMail({ ...template, to: user.email })
             .catch(err => {
-                logger.error('Error en sendAplazado (background):', err?.message);
+                logger.error('Error en sendAplazado:', err?.message);
             });
     });
 };
