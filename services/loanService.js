@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Loan = require('../models/Loan.js');
 const Item = require('../models/Item.js');
+const logger = require('../config/logger.js');
 const {
     sendAprobacion,
     sendDevolucion,
@@ -8,22 +9,33 @@ const {
 } = require('./mailService.js');
 
 const createLoan = async (userId, { item, aula, cantidad_prestamo }) => {
-    return Loan.create({
+    logger.info('Creando nueva solicitud de préstamo para usuario:', userId);
+    const loan = await Loan.create({
         usuario: userId,
         item,
         aula,
         cantidad_prestamo
     });
+    logger.info('Préstamo creado con ID:', loan._id);
+    return loan;
 };
 
 const approveLoan = async (loanId, fechaEstimada) => {
+    logger.info('Iniciando aprobación de préstamo:', loanId);
+    
     const loan = await Loan.findById(loanId);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
+    
+    logger.info('Préstamo encontrado. Estado actual:', loan.estado);
+    
     if (loan.estado !== 'Pendiente') throw Object.assign(new Error('El préstamo no está pendiente'), { status: 400 });
     if (!fechaEstimada) throw Object.assign(new Error('La fecha estimada es obligatoria'), { status: 400 });
 
     const item = await Item.findById(loan.item);
     if (!item) throw Object.assign(new Error('Ítem no encontrado'), { status: 404 });
+    
+    logger.info('Ítem encontrado:', item.nombre, '. Stock disponible:', item.cantidad_disponible);
+    
     if (loan.cantidad_prestamo > item.cantidad_disponible) {
         throw Object.assign(new Error('Stock insuficiente'), { status: 400 });
     }
@@ -32,6 +44,8 @@ const approveLoan = async (loanId, fechaEstimada) => {
     loan.fecha_prestamo = new Date();
     loan.fecha_estimada = fechaEstimada;
     await loan.save();
+    
+    logger.info('Préstamo marcado como aprobado');
 
     item.cantidad_disponible -= loan.cantidad_prestamo;
     if (item.cantidad_disponible < 0) {
@@ -42,24 +56,35 @@ const approveLoan = async (loanId, fechaEstimada) => {
         throw Object.assign(new Error('Stock insuficiente'), { status: 400 });
     }
     await item.save();
+    
+    logger.info('Stock actualizado. Nuevo stock disponible:', item.cantidad_disponible);
 
     const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
     
-    sendAprobacion(populated.usuario, populated, populated.item);
+    setImmediate(() => {
+        sendAprobacion(populated.usuario, populated, populated.item)
+            .catch(err => {
+                logger.error('Error enviando email de aprobación:', err?.message);
+            });
+    });
     
     return populated;
 };
 
 const rejectLoan = async (loanId) => {
+    logger.info('Rechazando préstamo:', loanId);
     const loan = await Loan.findById(loanId);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
     if (loan.estado !== 'Pendiente') throw Object.assign(new Error('El préstamo no está pendiente'), { status: 400 });
     loan.estado = 'Rechazado';
     await loan.save();
+    logger.info('Préstamo rechazado exitosamente');
     return loan;
 };
 
 const returnLoan = async (loanId) => {
+    logger.info('Procesando devolución de préstamo:', loanId);
+    
     const loan = await Loan.findById(loanId);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
     if (!['Aprobado', 'Aplazado'].includes(loan.estado)) {
@@ -78,15 +103,23 @@ const returnLoan = async (loanId) => {
         item.cantidad_disponible = item.cantidad_total_stock;
     }
     await item.save();
+    
+    logger.info('Stock restaurado. Nuevo stock:', item.cantidad_disponible);
 
     const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
     
-    sendDevolucion(populated.usuario, populated, populated.item);
+    setImmediate(() => {
+        sendDevolucion(populated.usuario, populated, populated.item)
+            .catch(err => {
+                logger.error('Error enviando email de devolución:', err?.message);
+            });
+    });
     
     return populated;
 };
 
 const delayLoan = async (loanId, nuevaFecha) => {
+    logger.info('Aplazando préstamo:', loanId);
     const loan = await Loan.findById(loanId).populate(['usuario', 'item']);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
     if(!['Aprobado', 'Aplazado'].includes(loan.estado)) {
@@ -97,8 +130,15 @@ const delayLoan = async (loanId, nuevaFecha) => {
     loan.estado = 'Aplazado';
     loan.fecha_estimada = nuevaFecha;
     await loan.save();
+    
+    logger.info('Préstamo aplazado. Nueva fecha:', nuevaFecha);
 
-    sendAplazado(loan.usuario, loan, loan.item);
+    setImmediate(() => {
+        sendAplazado(loan.usuario, loan, loan.item)
+            .catch(err => {
+                logger.error('Error enviando email de aplazado:', err?.message);
+            });
+    });
     
     return loan;
 };
