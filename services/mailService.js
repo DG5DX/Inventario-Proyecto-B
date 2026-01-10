@@ -18,18 +18,26 @@ const getTransporter = () => {
             return null;
         }
         
+        const port = Number(SMTP_PORT) || 465;
+        const isSecure = port === 465;
+        
         transporter = nodemailer.createTransport({
             host: SMTP_HOST,
-            port: Number(SMTP_PORT) || 587,
-            secure: false, 
+            port: port,
+            secure: isSecure,
             auth: SMTP_USER && SMTP_PASS ? { 
                 user: SMTP_USER, 
                 pass: SMTP_PASS 
             } : undefined,
             connectionTimeout: 10000,
             greetingTimeout: 10000,
-            socketTimeout: 10000
+            socketTimeout: 10000,
+            tls: {
+                rejectUnauthorized: false
+            }
         });
+        
+        logger.info(`📧 Transporter configurado: ${SMTP_HOST}:${port} (secure: ${isSecure})`);
     }
     return transporter;
 };
@@ -38,7 +46,7 @@ const sendMail = async ({ to, subject, text }) => {
     const tx = getTransporter();
     
     if (!tx) {
-        logger.warn('Transporter no configurado - correo no enviado');
+        logger.warn('⚠️ Transporter no configurado - correo no enviado');
         return;
     }
     
@@ -61,12 +69,12 @@ const sendMail = async ({ to, subject, text }) => {
         logger.error('❌ Error enviando correo', { 
             error: error.message,
             code: error.code,
+            command: error.command,
             to,
             subject,
             host: process.env.SMTP_HOST,
-            user: process.env.SMTP_USER
+            port: process.env.SMTP_PORT
         });
-        throw error; 
     }
 };
 
@@ -81,7 +89,7 @@ const sendAprobacion = (user, loan, item) => {
     setImmediate(() => {
         sendMail({ ...template, to: user.email })
             .catch(err => {
-                logger.error('Error en sendAprobacion (background):', err.message);
+                logger.error('Error en sendAprobacion (background):', err?.message);
             });
     });
 };
@@ -96,7 +104,7 @@ const sendDevolucion = (user, loan, item) => {
     setImmediate(() => {
         sendMail({ ...template, to: user.email })
             .catch(err => {
-                logger.error('Error en sendDevolucion (background):', err.message);
+                logger.error('Error en sendDevolucion (background):', err?.message);
             });
     });
 };
@@ -111,7 +119,7 @@ const sendRecordatorio = (user, loan, item) => {
     setImmediate(() => {
         sendMail({ ...template, to: user.email })
             .catch(err => {
-                logger.error('Error en sendRecordatorio (background):', err.message);
+                logger.error('Error en sendRecordatorio (background):', err?.message);
             });
     });
 };
@@ -126,7 +134,7 @@ const sendAplazado = (user, loan, item) => {
     setImmediate(() => {
         sendMail({ ...template, to: user.email })
             .catch(err => {
-                logger.error('Error en sendAplazado (background):', err.message);
+                logger.error('Error en sendAplazado (background):', err?.message);
             });
     });
 };
