@@ -6,6 +6,7 @@ const {
     aplazadoTemplate
 } = require('../utils/mailTemplates.js');
 
+
 const sendMail = async ({ to, subject, text }) => {
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     
@@ -114,10 +115,73 @@ const sendAplazado = (user, loan, item) => {
     });
 };
 
+const sendPasswordReset = (user, resetToken) => {
+    const resetUrl = `${process.env.FRONTEND_URL || 'https://inventario-proyecto-b.onrender.com'}/reset-password?token=${resetToken}`;
+    
+    const subject = 'Recuperación de Contraseña';
+    const text = `Hola ${user.nombre},
+
+Has solicitado recuperar tu contraseña.
+
+Para crear una nueva contraseña, haz clic en el siguiente enlace:
+${resetUrl}
+
+Este enlace expirará en 1 hora.
+
+Si no solicitaste este cambio, ignora este mensaje.
+
+Saludos,
+Sistema de Inventario`;
+
+    setImmediate(() => {
+        sendMail({ to: user.email, subject, text })
+            .catch(err => {
+                logger.error('Error en sendPasswordReset:', err?.message);
+            });
+    });
+};
+
+const sendNewLoanNotification = (admins, loan, user, item) => {
+    logger.info('📧 [Notificación Admins] Nueva solicitud de préstamo:', {
+        usuario: user.nombre,
+        item: item.nombre,
+        cantidad: loan.cantidad_prestamo
+    });
+    
+    if (!process.env.RESEND_API_KEY) {
+        logger.info('⚠️ RESEND_API_KEY no configurada - solo se registra en logs');
+        return;
+    }
+    
+    const subject = 'Nueva Solicitud de Préstamo';
+    const text = `Nueva solicitud de préstamo pendiente de aprobación:
+
+Usuario: ${user.nombre}
+Email: ${user.email}
+Ítem: ${item.nombre}
+Cantidad: ${loan.cantidad_prestamo}
+
+Por favor, revisa y aprueba/rechaza esta solicitud en el panel de administración.
+
+Saludos,
+Sistema de Inventario`;
+
+    admins.forEach(admin => {
+        setImmediate(() => {
+            sendMail({ to: admin.email, subject, text })
+                .catch(err => {
+                    logger.error('Error notificando a admin:', admin.email, err?.message);
+                });
+        });
+    });
+};
+
 module.exports = {
     sendMail,
     sendAprobacion,
     sendDevolucion,
     sendRecordatorio,
-    sendAplazado
+    sendAplazado,
+    sendPasswordReset,
+    sendNewLoanNotification
 };
