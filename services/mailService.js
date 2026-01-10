@@ -6,8 +6,6 @@ const {
     aplazadoTemplate
 } = require('../utils/mailTemplates.js');
 
-// ✅ RESEND - API de correos (100/día gratis)
-// Funciona en Render porque usa HTTPS, no SMTP
 
 const sendMail = async ({ to, subject, text }) => {
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -53,11 +51,9 @@ const sendMail = async ({ to, subject, text }) => {
             to,
             subject
         });
-        // No lanzar error para no bloquear el flujo
     }
 };
 
-// ✅ Envío asíncrono - No bloquea
 const sendAprobacion = (user, loan, item) => {
     const template = aprobacionTemplate({
         nombreUsuario: user.nombre,
