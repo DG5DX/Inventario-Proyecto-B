@@ -1,22 +1,50 @@
 const mongoose = require('mongoose');
 const Loan = require('../models/Loan.js');
 const Item = require('../models/Item.js');
+const User = require('../models/User.js');
 const logger = require('../config/logger.js');
 const {
     sendAprobacion,
     sendDevolucion,
-    sendAplazado
+    sendAplazado,
+    sendNewLoanNotification
 } = require('./mailService.js');
 
 const createLoan = async (userId, { item, aula, cantidad_prestamo }) => {
     logger.info('Creando nueva solicitud de préstamo para usuario:', userId);
+    
     const loan = await Loan.create({
         usuario: userId,
         item,
         aula,
         cantidad_prestamo
     });
+    
     logger.info('Préstamo creado con ID:', loan._id);
+    
+    setImmediate(async () => {
+        try {
+            logger.info('Notificando a administradores sobre nueva solicitud...');
+            
+            const admins = await User.find({ rol: 'Admin' });
+            logger.info('Notificando nueva solicitud a', admins.length, 'administrador(es)');
+            
+            const loanPopulated = await Loan.findById(loan._id)
+                .populate('usuario')
+                .populate('item');
+            
+            admins.forEach(admin => {
+                logger.info('Enviando notificación a admin:', admin.nombre, `(${admin.email})`);
+            });
+            
+            sendNewLoanNotification(admins, loanPopulated, loanPopulated.usuario, loanPopulated.item);
+            
+            logger.info('Notificaciones procesadas:', admins.length, 'admin(s) notificado(s)');
+        } catch (error) {
+            logger.error('Error notificando a administradores:', error.message);
+        }
+    });
+    
     return loan;
 };
 
@@ -62,10 +90,7 @@ const approveLoan = async (loanId, fechaEstimada) => {
     const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
     
     setImmediate(() => {
-        sendAprobacion(populated.usuario, populated, populated.item)
-            .catch(err => {
-                logger.error('Error enviando email de aprobación:', err?.message);
-            });
+        sendAprobacion(populated.usuario, populated, populated.item);
     });
     
     return populated;
@@ -109,10 +134,7 @@ const returnLoan = async (loanId) => {
     const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
     
     setImmediate(() => {
-        sendDevolucion(populated.usuario, populated, populated.item)
-            .catch(err => {
-                logger.error('Error enviando email de devolución:', err?.message);
-            });
+        sendDevolucion(populated.usuario, populated, populated.item);
     });
     
     return populated;
@@ -134,13 +156,23 @@ const delayLoan = async (loanId, nuevaFecha) => {
     logger.info('Préstamo aplazado. Nueva fecha:', nuevaFecha);
 
     setImmediate(() => {
-        sendAplazado(loan.usuario, loan, loan.item)
-            .catch(err => {
-                logger.error('Error enviando email de aplazado:', err?.message);
-            });
+        sendAplazado(loan.usuario, loan, loan.item);
     });
     
     return loan;
+};
+
+const deleteLoan = async (loanId) => {
+    logger.info('Eliminando préstamo:', loanId);
+    const loan = await Loan.findById(loanId);
+    if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
+    
+    if (!['Pendiente', 'Rechazado'].includes(loan.estado)) {
+        throw Object.assign(new Error('Solo se pueden eliminar préstamos pendientes o rechazados'), { status: 400 });
+    }
+    
+    await Loan.findByIdAndDelete(loanId);
+    logger.info('Préstamo eliminado exitosamente');
 };
 
 const listLoans = async ({ rol, _id}, filtros = {}) => {
@@ -171,6 +203,7 @@ module.exports = {
     rejectLoan,
     returnLoan,
     delayLoan,
+    deleteLoan,
     listLoans,
     getLoanById
 };
