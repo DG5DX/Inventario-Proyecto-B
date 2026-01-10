@@ -6,7 +6,6 @@ const {
     aplazadoTemplate
 } = require('../utils/mailTemplates.js');
 
-
 const sendMail = async ({ to, subject, text }) => {
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     
