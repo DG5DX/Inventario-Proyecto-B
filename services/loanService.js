@@ -1,17 +1,18 @@
 const mongoose = require('mongoose');
 const Loan = require('../models/Loan.js');
 const Item = require('../models/Item.js');
-const User = require('../models/User.js');
-const logger = require('../config/logger.js');
+const User = require('../models/User.js'); 
+const Classroom = require('../models/Classroom.js'); 
+const logger = require('../config/logger.js'); 
 const {
     sendAprobacion,
     sendDevolucion,
     sendAplazado,
-    sendNewLoanNotification
+    notifyAdminsNewLoan
 } = require('./mailService.js');
 
 const createLoan = async (userId, { item, aula, cantidad_prestamo }) => {
-    logger.info('Creando nueva solicitud de préstamo para usuario:', userId);
+    logger.info(`Creando nueva solicitud de préstamo para usuario: ${userId}`);
     
     const loan = await Loan.create({
         usuario: userId,
@@ -19,50 +20,43 @@ const createLoan = async (userId, { item, aula, cantidad_prestamo }) => {
         aula,
         cantidad_prestamo
     });
-    
-    logger.info('Préstamo creado con ID:', loan._id);
-    
-    setImmediate(async () => {
-        try {
+
+    logger.info(`Préstamo creado con ID: ${loan._id}`);
+
+    try {
+        const [user, itemData, aulaData] = await Promise.all([
+            User.findById(userId).lean(),
+            Item.findById(item).lean(),
+            Classroom.findById(aula).lean()
+        ]);
+
+        if (!user || !itemData || !aulaData) {
+            logger.warn('No se pudo cargar información completa para notificación a admins');
+        } else {
             logger.info('Notificando a administradores sobre nueva solicitud...');
-            
-            const admins = await User.find({ rol: 'Admin' });
-            logger.info('Notificando nueva solicitud a', admins.length, 'administrador(es)');
-            
-            const loanPopulated = await Loan.findById(loan._id)
-                .populate('usuario')
-                .populate('item');
-            
-            admins.forEach(admin => {
-                logger.info('Enviando notificación a admin:', admin.nombre, `(${admin.email})`);
-            });
-            
-            sendNewLoanNotification(admins, loanPopulated, loanPopulated.usuario, loanPopulated.item);
-            
-            logger.info('Notificaciones procesadas:', admins.length, 'admin(s) notificado(s)');
-        } catch (error) {
-            logger.error('Error notificando a administradores:', error.message);
+            await notifyAdminsNewLoan(user, loan, itemData, aulaData);
         }
-    });
-    
+    } catch (emailError) {
+        logger.error('Error al notificar administradores, pero préstamo creado exitosamente:', emailError);
+    }
+
     return loan;
 };
 
 const approveLoan = async (loanId, fechaEstimada) => {
-    logger.info('Iniciando aprobación de préstamo:', loanId);
+    logger.info(`Iniciando aprobación de préstamo: ${loanId}`);
     
     const loan = await Loan.findById(loanId);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
-    
-    logger.info('Préstamo encontrado. Estado actual:', loan.estado);
-    
     if (loan.estado !== 'Pendiente') throw Object.assign(new Error('El préstamo no está pendiente'), { status: 400 });
     if (!fechaEstimada) throw Object.assign(new Error('La fecha estimada es obligatoria'), { status: 400 });
+
+    logger.info(`Préstamo encontrado. Estado actual: ${loan.estado}`);
 
     const item = await Item.findById(loan.item);
     if (!item) throw Object.assign(new Error('Ítem no encontrado'), { status: 404 });
     
-    logger.info('Ítem encontrado:', item.nombre, '. Stock disponible:', item.cantidad_disponible);
+    logger.info(`Ítem encontrado: ${item.nombre}. Stock disponible: ${item.cantidad_disponible}`);
     
     if (loan.cantidad_prestamo > item.cantidad_disponible) {
         throw Object.assign(new Error('Stock insuficiente'), { status: 400 });
@@ -85,43 +79,56 @@ const approveLoan = async (loanId, fechaEstimada) => {
     }
     await item.save();
     
-    logger.info('Stock actualizado. Nuevo stock disponible:', item.cantidad_disponible);
+    logger.info(`Stock actualizado. Nuevo stock disponible: ${item.cantidad_disponible}`);
 
-    const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
-    
-    setImmediate(() => {
-        sendAprobacion(populated.usuario, populated, populated.item);
-    });
-    
-    return populated;
+    try {
+        const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
+        await sendAprobacion(populated.usuario, populated, populated.item);
+        logger.info(`Email de aprobación enviado a ${populated.usuario.email}`);
+    } catch (emailError) {
+        logger.error('Error enviando email de aprobación:', emailError);
+    }
+
+    return loan;
 };
 
 const rejectLoan = async (loanId) => {
-    logger.info('Rechazando préstamo:', loanId);
+    logger.info(`Rechazando préstamo: ${loanId}`);
+    
     const loan = await Loan.findById(loanId);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
     if (loan.estado !== 'Pendiente') throw Object.assign(new Error('El préstamo no está pendiente'), { status: 400 });
+    
     loan.estado = 'Rechazado';
     await loan.save();
+    
     logger.info('Préstamo rechazado exitosamente');
+    
     return loan;
 };
 
 const returnLoan = async (loanId) => {
-    logger.info('Procesando devolución de préstamo:', loanId);
+    logger.info(`Iniciando devolución de préstamo: ${loanId}`);
     
     const loan = await Loan.findById(loanId);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
+    
+    logger.info(`Préstamo encontrado. Estado actual: ${loan.estado}`);
+    
     if (!['Aprobado', 'Aplazado'].includes(loan.estado)) {
         throw Object.assign(new Error('El préstamo no se puede devolver'), { status: 400 });
     }
 
     const item = await Item.findById(loan.item);
     if (!item) throw Object.assign(new Error('Ítem no encontrado'), { status: 404 });
+    
+    logger.info(`Ítem encontrado: ${item.nombre}. Stock actual: ${item.cantidad_disponible}`);
 
     loan.estado = 'Devuelto';
     loan.fecha_retorno = new Date();
     await loan.save();
+    
+    logger.info('Préstamo marcado como devuelto');
 
     item.cantidad_disponible += loan.cantidad_prestamo;
     if (item.cantidad_disponible > item.cantidad_total_stock) {
@@ -129,19 +136,22 @@ const returnLoan = async (loanId) => {
     }
     await item.save();
     
-    logger.info('Stock restaurado. Nuevo stock:', item.cantidad_disponible);
+    logger.info(`Stock restaurado. Nuevo stock disponible: ${item.cantidad_disponible}`);
 
-    const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
-    
-    setImmediate(() => {
-        sendDevolucion(populated.usuario, populated, populated.item);
-    });
-    
-    return populated;
+    try {
+        const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
+        await sendDevolucion(populated.usuario, populated, populated.item);
+        logger.info(`Email de devolución enviado a ${populated.usuario.email}`);
+    } catch (emailError) {
+        logger.error('Error enviando email de devolución:', emailError);
+    }
+
+    return loan;
 };
 
 const delayLoan = async (loanId, nuevaFecha) => {
-    logger.info('Aplazando préstamo:', loanId);
+    logger.info(`Aplazando préstamo: ${loanId}`);
+    
     const loan = await Loan.findById(loanId).populate(['usuario', 'item']);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
     if(!['Aprobado', 'Aplazado'].includes(loan.estado)) {
@@ -153,26 +163,27 @@ const delayLoan = async (loanId, nuevaFecha) => {
     loan.fecha_estimada = nuevaFecha;
     await loan.save();
     
-    logger.info('Préstamo aplazado. Nueva fecha:', nuevaFecha);
+    logger.info(`Préstamo aplazado. Nueva fecha: ${nuevaFecha}`);
 
-    setImmediate(() => {
-        sendAplazado(loan.usuario, loan, loan.item);
-    });
-    
+    try {
+        await sendAplazado(loan.usuario, loan, loan.item);
+        logger.info(`Email de aplazamiento enviado a ${loan.usuario.email}`);
+    } catch (emailError) {
+        logger.error('Error enviando email de aplazamiento:', emailError);
+    }
+
     return loan;
 };
 
 const deleteLoan = async (loanId) => {
-    logger.info('Eliminando préstamo:', loanId);
-    const loan = await Loan.findById(loanId);
+    logger.info(`Eliminando préstamo: ${loanId}`);
+    
+    const loan = await Loan.findByIdAndDelete(loanId);
     if (!loan) throw Object.assign(new Error('Préstamo no encontrado'), { status: 404 });
     
-    if (!['Pendiente', 'Rechazado'].includes(loan.estado)) {
-        throw Object.assign(new Error('Solo se pueden eliminar préstamos pendientes o rechazados'), { status: 400 });
-    }
+    logger.info('Préstamo eliminado exitosamente (stock NO restaurado automáticamente)');
     
-    await Loan.findByIdAndDelete(loanId);
-    logger.info('Préstamo eliminado exitosamente');
+    return loan;
 };
 
 const listLoans = async ({ rol, _id}, filtros = {}) => {
