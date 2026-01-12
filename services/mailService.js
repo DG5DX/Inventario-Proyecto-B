@@ -1,7 +1,26 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const logger = require('../config/logger.js');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    secure: false,
+    auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+    },
+    tls: {
+        rejectUnauthorized: false
+    }
+});
+
+transporter.verify((error, success) => {
+    if (error) {
+        logger.error('❌ Error en configuración SMTP:', error);
+    } else {
+        logger.info('✅ Servidor SMTP listo para enviar emails');
+    }
+});
 
 const formatDate = (date) => {
     if (!date) return 'N/A';
@@ -14,33 +33,27 @@ const formatDate = (date) => {
 
 const sendEmail = async ({ to, subject, text, html }) => {
     try {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(to)) {
-            logger.warn(`⚠️ Email inválido: ${to}`);
-            return { success: false, error: 'Email inválido' };
-        }
-
         logger.info(`📧 Enviando email a: ${to}`);
         logger.info(`📋 Asunto: ${subject}`);
         
-        const { data, error } = await resend.emails.send({
-            from: `Sistema de Inventario <${process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'}>`,
-            to: [to],
+        const mailOptions = {
+            from: process.env.MAIL_FROM || 'Sistema Inventario <noreply@example.com>',
+            to,
             subject,
             text,
             html: html || `<pre>${text}</pre>`
-        });
+        };
 
-        if (error) {
-            throw error;
-        }
+        const info = await transporter.sendMail(mailOptions);
         
         logger.info(`✅ Email enviado exitosamente a: ${to}`);
-        logger.info(`📬 ID: ${data.id}`);
-        return { success: true, id: data.id };
+        logger.info(`📬 Message ID: ${info.messageId}`);
+        
+        return { success: true, messageId: info.messageId };
     } catch (error) {
         logger.error(`❌ Error enviando email a ${to}:`, {
-            error: error.message
+            error: error.message,
+            code: error.code
         });
         return { success: false, error: error.message };
     }
