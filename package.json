@@ -25,6 +25,7 @@
     "morgan": "^1.10.1",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.10.1",
+    "resend": "^6.7.0",
     "winston": "^3.18.3"
   },
   "devDependencies": {
@@ -36,8 +37,15 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "setupFilesAfterEnv": ["<rootDir>/src/tests/setup.js"],
-    "moduleFileExtensions": ["js", "json"],
-    "testMatch": ["**/src/tests/**/*.test.js"]
+    "setupFilesAfterEnv": [
+      "<rootDir>/src/tests/setup.js"
+    ],
+    "moduleFileExtensions": [
+      "js",
+      "json"
+    ],
+    "testMatch": [
+      "**/src/tests/**/*.test.js"
+    ]
   }
 }
