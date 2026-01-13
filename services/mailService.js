@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const User = require('../models/User.js');
 const logger = require('../config/logger.js');
 
 const transporter = nodemailer.createTransport({
@@ -36,6 +37,8 @@ const sendEmail = async ({ to, subject, text, html }) => {
         logger.info(`📧 Enviando email a: ${to}`);
         logger.info(`📋 Asunto: ${subject}`);
         
+        logger.debug(`SMTP Config: ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}, User: ${process.env.SMTP_USER ? 'Configurado' : 'NO configurado'}`);
+        
         const mailOptions = {
             from: process.env.MAIL_FROM || 'Sistema Inventario <noreply@example.com>',
             to,
@@ -53,7 +56,8 @@ const sendEmail = async ({ to, subject, text, html }) => {
     } catch (error) {
         logger.error(`❌ Error enviando email a ${to}:`, {
             error: error.message,
-            code: error.code
+            code: error.code,
+            command: error.command
         });
         return { success: false, error: error.message };
     }
@@ -313,8 +317,6 @@ Este es un mensaje automático, no responder.
 
 const notifyAdminsNewLoan = async (user, loan, item, aula) => {
     logger.info(`📨 Preparando notificación para administradores`);
-    
-    const User = require('../models/User.js');
     
     try {
         const admins = await User.find({ rol: 'Admin' }).lean();
