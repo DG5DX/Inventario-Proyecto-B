@@ -1,22 +1,33 @@
 const nodemailer = require('nodemailer');
 const logger = require('../config/logger.js');
 
-const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT) || 587,
-    secure: false,
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-    },
-    tls: {
-        rejectUnauthorized: false
+const createTransporter = () => {
+    const config = {
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.SMTP_PORT) || 587,
+        secure: false,
+        auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS
+        },
+        tls: {
+            rejectUnauthorized: false
+        }
+    };
+
+    if (!config.auth.user || !config.auth.pass) {
+        logger.error('⚠️ SMTP_USER o SMTP_PASS no están configurados en las variables de entorno');
     }
-});
+
+    return nodemailer.createTransport(config);
+};
+
+const transporter = createTransporter();
 
 transporter.verify((error, success) => {
     if (error) {
-        logger.error('❌ Error en configuración SMTP:', error);
+        logger.error('❌ Error en configuración SMTP:', error.message);
+        logger.error('Detalles:', error);
     } else {
         logger.info('✅ Servidor SMTP listo para enviar emails');
     }
@@ -24,18 +35,27 @@ transporter.verify((error, success) => {
 
 const formatDate = (date) => {
     if (!date) return 'N/A';
-    return new Intl.DateTimeFormat('es-CO', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-        timeZone: 'America/Bogota'
-    }).format(new Date(date));
+    try {
+        return new Intl.DateTimeFormat('es-CO', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZone: 'America/Bogota'
+        }).format(new Date(date));
+    } catch (error) {
+        logger.error('Error formateando fecha:', error);
+        return String(date);
+    }
 };
 
-const sendEmail = async ({ to, subject, text, html }) => {
+const sendEmail = async ({ to, subject, text, html }, retries = 2) => {
     try {
         logger.info(`📧 Enviando email a: ${to}`);
         logger.info(`📋 Asunto: ${subject}`);
         
+        if (!to || !to.includes('@')) {
+            throw new Error(`Email inválido: ${to}`);
+        }
+
         const mailOptions = {
             from: process.env.MAIL_FROM || 'Sistema Inventario <noreply@example.com>',
             to,
@@ -47,29 +67,37 @@ const sendEmail = async ({ to, subject, text, html }) => {
         const info = await transporter.sendMail(mailOptions);
         
         logger.info(`✅ Email enviado exitosamente a: ${to}`);
-        logger.info(`📬 ID: ${info.messageId}`);
+        logger.info(`📬 Message ID: ${info.messageId}`);
         
         return { success: true, messageId: info.messageId };
     } catch (error) {
         logger.error(`❌ Error enviando email a ${to}:`, error.message);
-        logger.error('Detalles del error:', error);
-        return { success: false, error: error.message };
+        logger.error('Código de error:', error.code);
+        logger.error('Detalles completos:', JSON.stringify(error, null, 2));
+        
+        if (retries > 0 && (error.code === 'ETIMEDOUT' || error.code === 'ECONNRESET')) {
+            logger.info(`🔄 Reintentando envío (${retries} intentos restantes)...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            return sendEmail({ to, subject, text, html }, retries - 1);
+        }
+        
+        return { success: false, error: error.message, code: error.code };
     }
 };
 
 const sendAprobacion = async (user, loan, item) => {
     logger.info(`📨 Preparando email de aprobación para: ${user.email}`);
     
-    const subject = '✅ Préstamo Aprobado - Sistema de Inventario';
+    const subject = 'Préstamo Aprobado - Sistema de Inventario';
     
     const text = `
 Hola ${user.nombre},
 
 ¡Tu préstamo ha sido APROBADO!
 
-📦 Ítem: ${item.nombre}
-📊 Cantidad: ${loan.cantidad_prestamo} unidad(es)
-📅 Fecha estimada de devolución: ${formatDate(loan.fecha_estimada)}
+Ítem: ${item.nombre}
+Cantidad: ${loan.cantidad_prestamo} unidad(es)
+Fecha estimada de devolución: ${formatDate(loan.fecha_estimada)}
 
 Por favor, devuelve el ítem antes de la fecha indicada.
 
@@ -82,6 +110,7 @@ Este es un mensaje automático, no responder.
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -94,11 +123,11 @@ Este es un mensaje automático, no responder.
 <body>
     <div class="container">
         <div class="header">
-            <h1>&#10004; Préstamo Aprobado</h1>
+            <h1>Préstamo Aprobado</h1>
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
-            <p>¡Tu préstamo ha sido <strong>APROBADO</strong>!</p>
+            <p>Tu préstamo ha sido <strong>APROBADO</strong>.</p>
             
             <div class="info-box">
                 <p><strong>Ítem:</strong> ${item.nombre}</p>
@@ -123,16 +152,16 @@ Este es un mensaje automático, no responder.
 const sendDevolucion = async (user, loan, item) => {
     logger.info(`📨 Preparando email de devolución para: ${user.email}`);
     
-    const subject = '✅ Devolución Registrada - Sistema de Inventario';
+    const subject = 'Devolución Registrada - Sistema de Inventario';
     
     const text = `
 Hola ${user.nombre},
 
 Hemos registrado la devolución de tu préstamo.
 
-📦 Ítem: ${item.nombre}
-📊 Cantidad: ${loan.cantidad_prestamo} unidad(es)
-📅 Fecha de devolución: ${formatDate(loan.fecha_retorno)}
+Ítem: ${item.nombre}
+Cantidad: ${loan.cantidad_prestamo} unidad(es)
+Fecha de devolución: ${formatDate(loan.fecha_retorno)}
 
 ¡Gracias por devolver a tiempo!
 
@@ -145,6 +174,7 @@ Este es un mensaje automático, no responder.
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -157,11 +187,11 @@ Este es un mensaje automático, no responder.
 <body>
     <div class="container">
         <div class="header">
-            <h1>&#10004; Devolución Registrada</h1>
+            <h1>Devolución Registrada</h1>
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
-            <p>Hemos registrado la <strong>devolución</strong> de tu préstamo.</p>
+            <p>Hemos registrado la devolución de tu préstamo.</p>
             
             <div class="info-box">
                 <p><strong>Ítem:</strong> ${item.nombre}</p>
@@ -186,16 +216,16 @@ Este es un mensaje automático, no responder.
 const sendRecordatorio = async (user, loan, item) => {
     logger.info(`📨 Preparando recordatorio para: ${user.email}`);
     
-    const subject = '⏰ Recordatorio de Devolución - Sistema de Inventario';
+    const subject = 'Recordatorio de Devolución - Sistema de Inventario';
     
     const text = `
 Hola ${user.nombre},
 
 Este es un recordatorio de que tu préstamo debe ser devuelto pronto.
 
-📦 Ítem: ${item.nombre}
-📊 Cantidad: ${loan.cantidad_prestamo} unidad(es)
-📅 Fecha límite: ${formatDate(loan.fecha_estimada)}
+Ítem: ${item.nombre}
+Cantidad: ${loan.cantidad_prestamo} unidad(es)
+Fecha límite: ${formatDate(loan.fecha_estimada)}
 
 Por favor, devuelve el ítem antes de la fecha indicada.
 
@@ -208,6 +238,7 @@ Este es un mensaje automático, no responder.
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -224,7 +255,7 @@ Este es un mensaje automático, no responder.
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
-            <p>Este es un <strong>recordatorio</strong> de que tu préstamo debe ser devuelto pronto.</p>
+            <p>Este es un recordatorio de que tu préstamo debe ser devuelto pronto.</p>
             
             <div class="info-box">
                 <p><strong>Ítem:</strong> ${item.nombre}</p>
@@ -249,16 +280,16 @@ Este es un mensaje automático, no responder.
 const sendAplazado = async (user, loan, item) => {
     logger.info(`📨 Preparando email de aplazamiento para: ${user.email}`);
     
-    const subject = '📅 Fecha de Préstamo Actualizada - Sistema de Inventario';
+    const subject = 'Fecha de Préstamo Actualizada - Sistema de Inventario';
     
     const text = `
 Hola ${user.nombre},
 
 La fecha de devolución de tu préstamo ha sido actualizada.
 
-📦 Ítem: ${item.nombre}
-📊 Cantidad: ${loan.cantidad_prestamo} unidad(es)
-📅 Nueva fecha de devolución: ${formatDate(loan.fecha_estimada)}
+Ítem: ${item.nombre}
+Cantidad: ${loan.cantidad_prestamo} unidad(es)
+Nueva fecha de devolución: ${formatDate(loan.fecha_estimada)}
 
 Por favor, devuelve el ítem antes de la nueva fecha indicada.
 
@@ -271,6 +302,7 @@ Este es un mensaje automático, no responder.
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -287,7 +319,7 @@ Este es un mensaje automático, no responder.
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
-            <p>La fecha de devolución de tu préstamo ha sido <strong>actualizada</strong>.</p>
+            <p>La fecha de devolución de tu préstamo ha sido actualizada.</p>
             
             <div class="info-box">
                 <p><strong>Ítem:</strong> ${item.nombre}</p>
@@ -324,32 +356,27 @@ const notifyAdminsNewLoan = async (user, loan, item, aula) => {
 
         logger.info(`Notificando a ${admins.length} administrador(es)`);
 
-        const subject = '🔔 Nueva Solicitud de Préstamo - Requiere Aprobación';
+        const subject = 'Nueva Solicitud de Préstamo - Requiere Aprobación';
         
         const text = `
 Nueva solicitud de préstamo recibida:
 
-═══════════════════════════════
-📋 DETALLES DE LA SOLICITUD
-═══════════════════════════════
+DETALLES DE LA SOLICITUD
 
-👤 Solicitante: ${user.nombre}
-📧 Email: ${user.email}
-📦 Ítem: ${item.nombre}
-📊 Cantidad: ${loan.cantidad_prestamo} unidad(es)
-📍 Ubicación: ${aula.nombre}
-📅 Fecha: ${formatDate(loan.fecha_solicitud || new Date())}
+Solicitante: ${user.nombre}
+Email: ${user.email}
+Ítem: ${item.nombre}
+Cantidad: ${loan.cantidad_prestamo} unidad(es)
+Ubicación: ${aula.nombre}
+Fecha: ${formatDate(loan.fecha_solicitud || new Date())}
 
-═══════════════════════════════
-⚡ ACCIÓN REQUERIDA
-═══════════════════════════════
+ACCIÓN REQUERIDA
 
 Por favor, ingresa al sistema para revisar y aprobar o rechazar esta solicitud.
 
-🔗 Panel de Administración > Solicitudes Pendientes
+Panel de Administración > Solicitudes Pendientes
 
-═══════════════════════════════
-
+---
 Sistema de Inventario
 Este es un mensaje automático, no responder.
         `.trim();
@@ -358,6 +385,7 @@ Este es un mensaje automático, no responder.
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -400,8 +428,20 @@ Este es un mensaje automático, no responder.
 </html>
         `.trim();
 
+        const validAdmins = admins.filter(admin => 
+            admin.email && 
+            admin.email.includes('@') && 
+            !admin.email.includes('demo.com') &&
+            !admin.email.includes('test.com')
+        );
+
+        if (validAdmins.length === 0) {
+            logger.warn('No hay administradores con emails válidos');
+            return { success: false, error: 'No valid admin emails' };
+        }
+
         const results = await Promise.allSettled(
-            admins.map(admin => sendEmail({ to: admin.email, subject, text, html }))
+            validAdmins.map(admin => sendEmail({ to: admin.email, subject, text, html }))
         );
 
         const successful = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
@@ -419,7 +459,7 @@ Este es un mensaje automático, no responder.
 const sendPasswordReset = async (user, resetLink, token) => {
     logger.info(`📨 Preparando email de recuperación para: ${user.email}`);
     
-    const subject = '🔐 Recuperación de Contraseña - Sistema de Inventario';
+    const subject = 'Recuperación de Contraseña - Sistema de Inventario';
     
     const text = `
 Hola ${user.nombre},
@@ -430,7 +470,7 @@ Haz click en el siguiente enlace para crear una nueva contraseña:
 
 ${resetLink}
 
-⚠️ Este enlace expirará en 1 hora.
+Este enlace expirará en 1 hora.
 
 Si no solicitaste este cambio, ignora este email.
 
@@ -443,6 +483,7 @@ Este es un mensaje automático, no responder.
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -461,7 +502,7 @@ Este es un mensaje automático, no responder.
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
-            <p>Recibimos una solicitud para <strong>restablecer tu contraseña</strong>.</p>
+            <p>Recibimos una solicitud para restablecer tu contraseña.</p>
             
             <div class="info-box">
                 <p>Haz click en el botón de abajo para crear una nueva contraseña:</p>
@@ -476,7 +517,7 @@ Este es un mensaje automático, no responder.
             
             <div class="warning">
                 <p><strong>Importante:</strong></p>
-                <p>• Este enlace expirará en <strong>1 hora</strong></p>
+                <p>• Este enlace expirará en 1 hora</p>
                 <p>• Si no solicitaste este cambio, ignora este email</p>
                 <p>• Tu contraseña actual seguirá siendo válida hasta que la cambies</p>
             </div>
