@@ -1,7 +1,7 @@
 const nodemailer = require('nodemailer');
-const User = require('../models/User.js');
 const logger = require('../config/logger.js');
 
+// Crear transportador SMTP
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT) || 587,
@@ -15,6 +15,7 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// Verificar conexión al iniciar
 transporter.verify((error, success) => {
     if (error) {
         logger.error('❌ Error en configuración SMTP:', error);
@@ -23,6 +24,7 @@ transporter.verify((error, success) => {
     }
 });
 
+// Función helper para formatear fechas
 const formatDate = (date) => {
     if (!date) return 'N/A';
     return new Intl.DateTimeFormat('es-CO', {
@@ -32,12 +34,11 @@ const formatDate = (date) => {
     }).format(new Date(date));
 };
 
+// Función base para enviar emails
 const sendEmail = async ({ to, subject, text, html }) => {
     try {
         logger.info(`📧 Enviando email a: ${to}`);
         logger.info(`📋 Asunto: ${subject}`);
-        
-        logger.debug(`SMTP Config: ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}, User: ${process.env.SMTP_USER ? 'Configurado' : 'NO configurado'}`);
         
         const mailOptions = {
             from: process.env.MAIL_FROM || 'Sistema Inventario <noreply@example.com>',
@@ -54,15 +55,12 @@ const sendEmail = async ({ to, subject, text, html }) => {
         
         return { success: true, messageId: info.messageId };
     } catch (error) {
-        logger.error(`❌ Error enviando email a ${to}:`, {
-            error: error.message,
-            code: error.code,
-            command: error.command
-        });
+        logger.error(`❌ Error enviando email a ${to}:`, error.message);
         return { success: false, error: error.message };
     }
 };
 
+// Enviar email de aprobación
 const sendAprobacion = async (user, loan, item) => {
     logger.info(`📨 Preparando email de aprobación para: ${user.email}`);
     
@@ -126,6 +124,7 @@ Este es un mensaje automático, no responder.
     return sendEmail({ to: user.email, subject, text, html });
 };
 
+// Enviar email de devolución
 const sendDevolucion = async (user, loan, item) => {
     logger.info(`📨 Preparando email de devolución para: ${user.email}`);
     
@@ -189,6 +188,7 @@ Este es un mensaje automático, no responder.
     return sendEmail({ to: user.email, subject, text, html });
 };
 
+// Enviar recordatorio
 const sendRecordatorio = async (user, loan, item) => {
     logger.info(`📨 Preparando recordatorio para: ${user.email}`);
     
@@ -252,6 +252,7 @@ Este es un mensaje automático, no responder.
     return sendEmail({ to: user.email, subject, text, html });
 };
 
+// Enviar email de aplazamiento
 const sendAplazado = async (user, loan, item) => {
     logger.info(`📨 Preparando email de aplazamiento para: ${user.email}`);
     
@@ -315,8 +316,11 @@ Este es un mensaje automático, no responder.
     return sendEmail({ to: user.email, subject, text, html });
 };
 
+// Notificar a administradores
 const notifyAdminsNewLoan = async (user, loan, item, aula) => {
     logger.info(`📨 Preparando notificación para administradores`);
+    
+    const User = require('../models/User.js');
     
     try {
         const admins = await User.find({ rol: 'Admin' }).lean();
@@ -420,6 +424,7 @@ Este es un mensaje automático, no responder.
     }
 };
 
+// Enviar email de recuperación de contraseña
 const sendPasswordReset = async (user, resetLink, token) => {
     logger.info(`📨 Preparando email de recuperación para: ${user.email}`);
     
@@ -498,7 +503,6 @@ Este es un mensaje automático, no responder.
 };
 
 module.exports = {
-    sendEmail,
     sendAprobacion,
     sendDevolucion,
     sendRecordatorio,
