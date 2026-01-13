@@ -1,7 +1,6 @@
 const nodemailer = require('nodemailer');
 const logger = require('../config/logger.js');
 
-// Crear transportador SMTP
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT) || 587,
@@ -15,7 +14,6 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Verificar conexión al iniciar
 transporter.verify((error, success) => {
     if (error) {
         logger.error('❌ Error en configuración SMTP:', error);
@@ -24,7 +22,6 @@ transporter.verify((error, success) => {
     }
 });
 
-// Función helper para formatear fechas
 const formatDate = (date) => {
     if (!date) return 'N/A';
     return new Intl.DateTimeFormat('es-CO', {
@@ -34,7 +31,6 @@ const formatDate = (date) => {
     }).format(new Date(date));
 };
 
-// Función base para enviar emails
 const sendEmail = async ({ to, subject, text, html }) => {
     try {
         logger.info(`📧 Enviando email a: ${to}`);
@@ -51,16 +47,16 @@ const sendEmail = async ({ to, subject, text, html }) => {
         const info = await transporter.sendMail(mailOptions);
         
         logger.info(`✅ Email enviado exitosamente a: ${to}`);
-        logger.info(`📬 Message ID: ${info.messageId}`);
+        logger.info(`📬 ID: ${info.messageId}`);
         
         return { success: true, messageId: info.messageId };
     } catch (error) {
         logger.error(`❌ Error enviando email a ${to}:`, error.message);
+        logger.error('Detalles del error:', error);
         return { success: false, error: error.message };
     }
 };
 
-// Enviar email de aprobación
 const sendAprobacion = async (user, loan, item) => {
     logger.info(`📨 Preparando email de aprobación para: ${user.email}`);
     
@@ -98,16 +94,16 @@ Este es un mensaje automático, no responder.
 <body>
     <div class="container">
         <div class="header">
-            <h1>✅ Préstamo Aprobado</h1>
+            <h1>&#10004; Préstamo Aprobado</h1>
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
             <p>¡Tu préstamo ha sido <strong>APROBADO</strong>!</p>
             
             <div class="info-box">
-                <p><strong>📦 Ítem:</strong> ${item.nombre}</p>
-                <p><strong>📊 Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
-                <p><strong>📅 Fecha de devolución:</strong> ${formatDate(loan.fecha_estimada)}</p>
+                <p><strong>Ítem:</strong> ${item.nombre}</p>
+                <p><strong>Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
+                <p><strong>Fecha de devolución:</strong> ${formatDate(loan.fecha_estimada)}</p>
             </div>
             
             <p>Por favor, devuelve el ítem antes de la fecha indicada.</p>
@@ -124,7 +120,6 @@ Este es un mensaje automático, no responder.
     return sendEmail({ to: user.email, subject, text, html });
 };
 
-// Enviar email de devolución
 const sendDevolucion = async (user, loan, item) => {
     logger.info(`📨 Preparando email de devolución para: ${user.email}`);
     
@@ -162,16 +157,16 @@ Este es un mensaje automático, no responder.
 <body>
     <div class="container">
         <div class="header">
-            <h1>✅ Devolución Registrada</h1>
+            <h1>&#10004; Devolución Registrada</h1>
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
             <p>Hemos registrado la <strong>devolución</strong> de tu préstamo.</p>
             
             <div class="info-box">
-                <p><strong>📦 Ítem:</strong> ${item.nombre}</p>
-                <p><strong>📊 Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
-                <p><strong>📅 Devuelto el:</strong> ${formatDate(loan.fecha_retorno)}</p>
+                <p><strong>Ítem:</strong> ${item.nombre}</p>
+                <p><strong>Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
+                <p><strong>Devuelto el:</strong> ${formatDate(loan.fecha_retorno)}</p>
             </div>
             
             <p>¡Gracias por devolver a tiempo!</p>
@@ -188,7 +183,6 @@ Este es un mensaje automático, no responder.
     return sendEmail({ to: user.email, subject, text, html });
 };
 
-// Enviar recordatorio
 const sendRecordatorio = async (user, loan, item) => {
     logger.info(`📨 Preparando recordatorio para: ${user.email}`);
     
@@ -226,16 +220,16 @@ Este es un mensaje automático, no responder.
 <body>
     <div class="container">
         <div class="header">
-            <h1>⏰ Recordatorio de Devolución</h1>
+            <h1>Recordatorio de Devolución</h1>
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
             <p>Este es un <strong>recordatorio</strong> de que tu préstamo debe ser devuelto pronto.</p>
             
             <div class="info-box">
-                <p><strong>📦 Ítem:</strong> ${item.nombre}</p>
-                <p><strong>📊 Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
-                <p><strong>📅 Fecha límite:</strong> ${formatDate(loan.fecha_estimada)}</p>
+                <p><strong>Ítem:</strong> ${item.nombre}</p>
+                <p><strong>Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
+                <p><strong>Fecha límite:</strong> ${formatDate(loan.fecha_estimada)}</p>
             </div>
             
             <p>Por favor, devuelve el ítem antes de la fecha indicada.</p>
@@ -252,7 +246,6 @@ Este es un mensaje automático, no responder.
     return sendEmail({ to: user.email, subject, text, html });
 };
 
-// Enviar email de aplazamiento
 const sendAplazado = async (user, loan, item) => {
     logger.info(`📨 Preparando email de aplazamiento para: ${user.email}`);
     
@@ -290,16 +283,16 @@ Este es un mensaje automático, no responder.
 <body>
     <div class="container">
         <div class="header">
-            <h1>📅 Fecha Actualizada</h1>
+            <h1>Fecha Actualizada</h1>
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
             <p>La fecha de devolución de tu préstamo ha sido <strong>actualizada</strong>.</p>
             
             <div class="info-box">
-                <p><strong>📦 Ítem:</strong> ${item.nombre}</p>
-                <p><strong>📊 Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
-                <p><strong>📅 Nueva fecha:</strong> ${formatDate(loan.fecha_estimada)}</p>
+                <p><strong>Ítem:</strong> ${item.nombre}</p>
+                <p><strong>Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
+                <p><strong>Nueva fecha:</strong> ${formatDate(loan.fecha_estimada)}</p>
             </div>
             
             <p>Por favor, devuelve el ítem antes de la nueva fecha indicada.</p>
@@ -316,7 +309,6 @@ Este es un mensaje automático, no responder.
     return sendEmail({ to: user.email, subject, text, html });
 };
 
-// Notificar a administradores
 const notifyAdminsNewLoan = async (user, loan, item, aula) => {
     logger.info(`📨 Preparando notificación para administradores`);
     
@@ -379,24 +371,24 @@ Este es un mensaje automático, no responder.
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔔 Nueva Solicitud de Préstamo</h1>
+            <h1>Nueva Solicitud de Préstamo</h1>
         </div>
         <div class="content">
             <p><strong>Nueva solicitud de préstamo recibida:</strong></p>
             
             <div class="info-box">
-                <p><strong>👤 Solicitante:</strong> ${user.nombre}</p>
-                <p><strong>📧 Email:</strong> ${user.email}</p>
-                <p><strong>📦 Ítem:</strong> ${item.nombre}</p>
-                <p><strong>📊 Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
-                <p><strong>📍 Ubicación:</strong> ${aula.nombre}</p>
-                <p><strong>📅 Fecha:</strong> ${formatDate(loan.fecha_solicitud || new Date())}</p>
+                <p><strong>Solicitante:</strong> ${user.nombre}</p>
+                <p><strong>Email:</strong> ${user.email}</p>
+                <p><strong>Ítem:</strong> ${item.nombre}</p>
+                <p><strong>Cantidad:</strong> ${loan.cantidad_prestamo} unidad(es)</p>
+                <p><strong>Ubicación:</strong> ${aula.nombre}</p>
+                <p><strong>Fecha:</strong> ${formatDate(loan.fecha_solicitud || new Date())}</p>
             </div>
             
             <div class="action-box">
-                <p><strong>⚡ ACCIÓN REQUERIDA</strong></p>
+                <p><strong>ACCIÓN REQUERIDA</strong></p>
                 <p>Por favor, ingresa al sistema para revisar y aprobar o rechazar esta solicitud.</p>
-                <p><strong>🔗 Panel de Administración > Solicitudes Pendientes</strong></p>
+                <p><strong>Panel de Administración &gt; Solicitudes Pendientes</strong></p>
             </div>
         </div>
         <div class="footer">
@@ -424,7 +416,6 @@ Este es un mensaje automático, no responder.
     }
 };
 
-// Enviar email de recuperación de contraseña
 const sendPasswordReset = async (user, resetLink, token) => {
     logger.info(`📨 Preparando email de recuperación para: ${user.email}`);
     
@@ -466,7 +457,7 @@ Este es un mensaje automático, no responder.
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔐 Recuperación de Contraseña</h1>
+            <h1>Recuperación de Contraseña</h1>
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>
@@ -484,7 +475,7 @@ Este es un mensaje automático, no responder.
             </div>
             
             <div class="warning">
-                <p><strong>⚠️ Importante:</strong></p>
+                <p><strong>Importante:</strong></p>
                 <p>• Este enlace expirará en <strong>1 hora</strong></p>
                 <p>• Si no solicitaste este cambio, ignora este email</p>
                 <p>• Tu contraseña actual seguirá siendo válida hasta que la cambies</p>
