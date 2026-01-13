@@ -9,7 +9,7 @@ const {
     sendDevolucion,
     sendAplazado,
     notifyAdminsNewLoan
-} = require('./mailService.js');
+} = require('./mailService.js');  
 
 const createLoan = async (userId, { item, aula, cantidad_prestamo }) => {
     logger.info(`Creando nueva solicitud de préstamo para usuario: ${userId}`);

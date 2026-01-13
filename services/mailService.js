@@ -496,6 +496,7 @@ Este es un mensaje automático, no responder.
 };
 
 module.exports = {
+    sendEmail,
     sendAprobacion,
     sendDevolucion,
     sendRecordatorio,
